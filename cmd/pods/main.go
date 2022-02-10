@@ -62,23 +62,23 @@ func main() {
 			}, namespace, secrets, configMaps)
 
 			// Create notifications controller that handles Kubernetes resources processing
-			certClient := dynamic.NewForConfigOrDie(restConfig).Resource(schema.GroupVersionResource{
+			podClient := dynamic.NewForConfigOrDie(restConfig).Resource(schema.GroupVersionResource{
 				Group: "", Version: "v1", Resource: "pods",
 			})
-			certsInformer := cache.NewSharedIndexInformer(&cache.ListWatch{
+			podInformer := cache.NewSharedIndexInformer(&cache.ListWatch{
 				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-					return certClient.List(context.Background(), options)
+					return podClient.List(context.Background(), options)
 				},
 				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-					return certClient.Watch(context.Background(), metav1.ListOptions{})
+					return podClient.Watch(context.Background(), metav1.ListOptions{})
 				},
 			}, &unstructured.Unstructured{}, time.Minute, cache.Indexers{})
-			ctrl := controller.NewController(certClient, certsInformer, notificationsFactory)
+			ctrl := controller.NewController(podClient, podInformer, notificationsFactory)
 
 			// Start informers and controller
 			go informersFactory.Start(context.Background().Done())
-			go certsInformer.Run(context.Background().Done())
-			if !cache.WaitForCacheSync(context.Background().Done(), secrets.HasSynced, configMaps.HasSynced, certsInformer.HasSynced) {
+			go podInformer.Run(context.Background().Done())
+			if !cache.WaitForCacheSync(context.Background().Done(), secrets.HasSynced, configMaps.HasSynced, podInformer.HasSynced) {
 				log.Fatalf("Failed to synchronize informers")
 			}
 
