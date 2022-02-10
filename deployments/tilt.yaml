@@ -1,0 +1,143 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pods
+  labels:
+    app: pods
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pods
+  template:
+    metadata:
+      labels:
+        app: pods
+    spec:
+      serviceAccountName: notification-robot
+      containers:
+      - image: pods
+        name: pods
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook
+  labels:
+    app: webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook
+  template:
+    metadata:
+      labels:
+        app: webhook
+      annotations:
+        notifications.argoproj.io/subscribe.on-pod-ready.webhook: ""
+    spec:
+      containers:
+      - image: webhook
+        name: webhook
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook
+spec:
+  selector:
+    app: webhook
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-robot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-resources-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["list", "get", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: read-cluster-resources
+subjects:
+- kind: ServiceAccount
+  name: notification-robot
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: cluster-resources-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: namespace-resources-reader
+rules:
+- apiGroups: [""]
+  resources: ["secrets", "configmaps"]
+  verbs: ["list", "get", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-namespace-resources
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: notification-robot
+  namespace: default
+roleRef:
+  kind: Role
+  name: namespace-resources-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-notifications-cm
+data:
+  trigger.on-pod-ready: |
+    - when: pod.status.phase in ['Running']
+      send: [pod-ready]
+  template.pod-ready: |
+    webhook:
+      webhook:
+        method: GET
+        path: /
+        body: |
+          Pod {{.pod.metadata.name}} is ready!
+  service.webhook.webhook: |
+    url: http://webhook.default:8080/webhook
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pod-notifications-secret
